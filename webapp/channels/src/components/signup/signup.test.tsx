@@ -157,6 +157,7 @@ describe('components/signup/Signup', () => {
             EnableSignUpWithGoogle: 'true',
             EnableSignUpWithOpenId: 'true',
             EnableOpenServer: 'true',
+            EnableUserCreation: 'true',
             LdapLoginFieldName: '',
             GitLabButtonText: '',
             GitLabButtonColor: '',
@@ -181,6 +182,16 @@ describe('components/signup/Signup', () => {
 
     it('should match snapshot for all signup options enabled with isLicensed disabled', () => {
         mockLicense = {IsLicensed: 'false', Cloud: 'false'};
+
+        const wrapper = shallow(
+            <Signup/>,
+        );
+
+        expect(wrapper).toMatchSnapshot();
+    });
+
+    it('should match snapshot for all signup options enabled with EnableUserCreaton disabled', () => {
+        mockConfig.EnableUserCreation = 'false';
 
         const wrapper = shallow(
             <Signup/>,
@@ -290,7 +301,7 @@ describe('components/signup/Signup', () => {
     });
 
     it('should show newsletter check box opt-in for self-hosted non airgapped workspaces', async () => {
-        jest.spyOn(useCWSAvailabilityCheckAll, 'default').mockImplementation(() => true);
+        jest.spyOn(useCWSAvailabilityCheckAll, 'default').mockImplementation(() => useCWSAvailabilityCheckAll.CSWAvailabilityCheckTypes.Available);
         mockLicense = {IsLicensed: 'true', Cloud: 'false'};
 
         const {container: signupContainer} = renderWithContext(
@@ -305,7 +316,7 @@ describe('components/signup/Signup', () => {
     });
 
     it('should NOT show newsletter check box opt-in for self-hosted AND airgapped workspaces', async () => {
-        jest.spyOn(useCWSAvailabilityCheckAll, 'default').mockImplementation(() => false);
+        jest.spyOn(useCWSAvailabilityCheckAll, 'default').mockImplementation(() => useCWSAvailabilityCheckAll.CSWAvailabilityCheckTypes.Unavailable);
         mockLicense = {IsLicensed: 'true', Cloud: 'false'};
 
         const {container: signupContainer} = renderWithContext(
@@ -317,7 +328,7 @@ describe('components/signup/Signup', () => {
     });
 
     it('should show newsletter related opt-in or text for cloud', async () => {
-        jest.spyOn(useCWSAvailabilityCheckAll, 'default').mockImplementation(() => true);
+        jest.spyOn(useCWSAvailabilityCheckAll, 'default').mockImplementation(() => useCWSAvailabilityCheckAll.CSWAvailabilityCheckTypes.Available);
         mockLicense = {IsLicensed: 'true', Cloud: 'true'};
 
         const {container: signupContainer} = renderWithContext(

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -25,6 +26,7 @@ import (
 	"github.com/mattermost/mattermost/server/public/shared/i18n"
 	"github.com/mattermost/mattermost/server/public/shared/mlog"
 	"github.com/mattermost/mattermost/server/public/shared/request"
+	"github.com/mattermost/mattermost/server/v8/channels/store/sqlstore"
 )
 
 const (
@@ -48,6 +50,10 @@ const (
 
 const websocketMessagePluginPrefix = "custom_"
 
+// UnsetPresenceIndicator is the value that gets set initially for active channel/
+// thread/team. This is done to differentiate it from an explicitly set empty value.
+const UnsetPresenceIndicator = "<>"
+
 type pluginWSPostedHook struct {
 	connectionID string
 	userID       string
@@ -55,13 +61,17 @@ type pluginWSPostedHook struct {
 }
 
 type WebConnConfig struct {
-	WebSocket    *websocket.Conn
-	Session      model.Session
-	TFunc        i18n.TranslateFunc
-	Locale       string
-	ConnectionID string
-	Active       bool
-	ReuseCount   int
+	WebSocket     *websocket.Conn
+	Session       model.Session
+	TFunc         i18n.TranslateFunc
+	Locale        string
+	ConnectionID  string
+	Active        bool
+	ReuseCount    int
+	OriginClient  string
+	PostedAck     bool
+	RemoteAddress string
+	XForwardedFor string
 
 	// These aren't necessary to be exported to api layer.
 	sequence         int
@@ -83,6 +93,7 @@ type WebConn struct {
 	Locale           string
 	Sequence         int64
 	UserId           string
+	PostedAck        bool
 
 	allChannelMembers         map[string]string
 	lastAllChannelMembersTime int64
@@ -99,22 +110,32 @@ type WebConn struct {
 	deadQueuePointer int
 	// active indicates whether there is an open websocket connection attached
 	// to this webConn or not.
-	active atomic.Bool
+	Active atomic.Bool
 	// reuseCount indicates how many times this connection has been reused.
 	// This is used to differentiate between a fresh connection and
 	// a reused connection.
 	// It's theoretically possible for this number to wrap around. But we
 	// leave that as an edge-case.
-	reuseCount            int
-	sessionToken          atomic.Value
-	session               atomic.Pointer[model.Session]
-	connectionID          atomic.Value
-	activeChannelID       atomic.Value
-	activeTeamID          atomic.Value
-	activeThreadChannelID atomic.Value
-	endWritePump          chan struct{}
-	pumpFinished          chan struct{}
-	pluginPosted          chan pluginWSPostedHook
+	reuseCount   int
+	sessionToken atomic.Value
+	session      atomic.Pointer[model.Session]
+	connectionID atomic.Value
+
+	// The client type behind the connection (i.e. web, desktop or mobile)
+	originClient string
+	// The remote address from the original HTTP Upgrade request
+	remoteAddress string
+	// The X-Forwarded-For HTTP header value from the origina HTTP Upgrade request
+	xForwardedFor string
+
+	activeChannelID                 atomic.Value
+	activeTeamID                    atomic.Value
+	activeRHSThreadChannelID        atomic.Value
+	activeThreadViewThreadChannelID atomic.Value
+
+	endWritePump chan struct{}
+	pumpFinished chan struct{}
+	pluginPosted chan pluginWSPostedHook
 
 	// These counters are to suppress spammy websocket.slow
 	// and websocket.full logs which happen continuously, if they
@@ -222,22 +243,29 @@ func (ps *PlatformService) NewWebConn(cfg *WebConnConfig, suite SuiteIFace, runn
 		UserId:             cfg.Session.UserId,
 		T:                  cfg.TFunc,
 		Locale:             cfg.Locale,
+		PostedAck:          cfg.PostedAck,
 		reuseCount:         cfg.ReuseCount,
 		endWritePump:       make(chan struct{}),
 		pumpFinished:       make(chan struct{}),
 		pluginPosted:       make(chan pluginWSPostedHook, 10),
 		lastLogTimeSlow:    time.Now(),
 		lastLogTimeFull:    time.Now(),
+		originClient:       cfg.OriginClient,
+		remoteAddress:      cfg.RemoteAddress,
+		xForwardedFor:      cfg.XForwardedFor,
 	}
-	wc.active.Store(cfg.Active)
+	wc.Active.Store(cfg.Active)
 
 	wc.SetSession(&cfg.Session)
 	wc.SetSessionToken(cfg.Session.Token)
 	wc.SetSessionExpiresAt(cfg.Session.ExpiresAt)
 	wc.SetConnectionID(cfg.ConnectionID)
-	wc.SetActiveChannelID("")
-	wc.SetActiveTeamID("")
-	wc.SetActiveThreadChannelID("")
+	// <> means unset. This is to differentiate from empty value.
+	// Because we need to support mobile clients where the value might be unset.
+	wc.SetActiveChannelID(UnsetPresenceIndicator)
+	wc.SetActiveTeamID(UnsetPresenceIndicator)
+	wc.SetActiveRHSThreadChannelID(UnsetPresenceIndicator)
+	wc.SetActiveThreadViewThreadChannelID(UnsetPresenceIndicator)
 
 	ps.Go(func() {
 		runner.RunMultiHook(func(hooks plugin.Hooks) bool {
@@ -303,6 +331,9 @@ func (wc *WebConn) SetActiveChannelID(id string) {
 
 // GetActiveChannelID returns the active channel id of the connection.
 func (wc *WebConn) GetActiveChannelID() string {
+	if wc.activeChannelID.Load() == nil {
+		return UnsetPresenceIndicator
+	}
 	return wc.activeChannelID.Load().(string)
 }
 
@@ -313,28 +344,41 @@ func (wc *WebConn) SetActiveTeamID(id string) {
 
 // GetActiveTeamID returns the active team id of the connection.
 func (wc *WebConn) GetActiveTeamID() string {
+	if wc.activeTeamID.Load() == nil {
+		return UnsetPresenceIndicator
+	}
 	return wc.activeTeamID.Load().(string)
 }
 
-// GetActiveThreadChannelID returns the channel id of the active thread of the connection.
-func (wc *WebConn) GetActiveThreadChannelID() string {
-	return wc.activeThreadChannelID.Load().(string)
-}
-
-// SetActiveThreadChannelID sets the channel id of the active thread of the connection.
-func (wc *WebConn) SetActiveThreadChannelID(id string) {
-	wc.activeThreadChannelID.Store(id)
-}
-
-// areAllInactive returns whether all of the connections
-// are inactive or not.
-func areAllInactive(conns []*WebConn) bool {
-	for _, conn := range conns {
-		if conn.active.Load() {
-			return false
-		}
+// GetActiveRHSThreadChannelID returns the channel id of the active thread of the connection.
+func (wc *WebConn) GetActiveRHSThreadChannelID() string {
+	if wc.activeRHSThreadChannelID.Load() == nil {
+		return UnsetPresenceIndicator
 	}
-	return true
+	return wc.activeRHSThreadChannelID.Load().(string)
+}
+
+// SetActiveRHSThreadChannelID sets the channel id of the active thread of the connection.
+func (wc *WebConn) SetActiveRHSThreadChannelID(id string) {
+	wc.activeRHSThreadChannelID.Store(id)
+}
+
+// GetActiveThreadViewThreadChannelID returns the channel id of the active thread of the connection.
+func (wc *WebConn) GetActiveThreadViewThreadChannelID() string {
+	if wc.activeThreadViewThreadChannelID.Load() == nil {
+		return UnsetPresenceIndicator
+	}
+	return wc.activeThreadViewThreadChannelID.Load().(string)
+}
+
+// SetActiveThreadViewThreadChannelID sets the channel id of the active thread of the connection.
+func (wc *WebConn) SetActiveThreadViewThreadChannelID(id string) {
+	wc.activeThreadViewThreadChannelID.Store(id)
+}
+
+// isSet is a helper to check if a value is unset or not.
+func (wc *WebConn) isSet(val string) bool {
+	return val != UnsetPresenceIndicator
 }
 
 // GetSession returns the session of the connection.
@@ -382,8 +426,15 @@ func (wc *WebConn) Pump() {
 
 func (wc *WebConn) readPump() {
 	defer func() {
+		if metrics := wc.Platform.metricsIFace; metrics != nil {
+			metrics.DecrementHTTPWebSockets(wc.originClient)
+		}
 		wc.WebSocket.Close()
 	}()
+	if metrics := wc.Platform.metricsIFace; metrics != nil {
+		metrics.IncrementHTTPWebSockets(wc.originClient)
+	}
+
 	wc.WebSocket.SetReadLimit(model.SocketMaxMessageSizeKb)
 	wc.WebSocket.SetReadDeadline(time.Now().Add(pongWaitTime))
 	wc.WebSocket.SetPongHandler(func(string) error {
@@ -431,6 +482,16 @@ func (wc *WebConn) readPump() {
 			wc.logSocketErr("websocket.cloneRequest", err)
 			continue
 		}
+
+		if session := wc.GetSession(); session != nil {
+			clonedReq.Session.Id = session.Id
+		}
+
+		if clonedReq.Data == nil {
+			clonedReq.Data = map[string]any{}
+		}
+		clonedReq.Data[model.WebSocketRemoteAddr] = wc.remoteAddress
+		clonedReq.Data[model.WebSocketXForwardedFor] = wc.xForwardedFor
 
 		wc.pluginPosted <- pluginWSPostedHook{wc.GetConnectionID(), wc.UserId, clonedReq}
 	}
@@ -509,7 +570,7 @@ func (wc *WebConn) writePump() {
 				continue
 			}
 
-			if wc.active.Load() && len(wc.send) >= sendFullWarn && time.Since(wc.lastLogTimeFull) > websocketSuppressWarnThreshold {
+			if wc.Active.Load() && len(wc.send) >= sendFullWarn && time.Since(wc.lastLogTimeFull) > websocketSuppressWarnThreshold {
 				logData := []mlog.Field{
 					mlog.String("user_id", wc.UserId),
 					mlog.String("conn_id", wc.GetConnectionID()),
@@ -766,7 +827,7 @@ func (wc *WebConn) ShouldSendEvent(msg *model.WebSocketEvent) bool {
 		case model.WebsocketEventTyping,
 			model.WebsocketEventStatusChange,
 			model.WebsocketEventMultipleChannelsViewed:
-			if wc.active.Load() && time.Since(wc.lastLogTimeSlow) > websocketSuppressWarnThreshold {
+			if wc.Active.Load() && time.Since(wc.lastLogTimeSlow) > websocketSuppressWarnThreshold {
 				mlog.Warn(
 					"websocket.slow: dropping message",
 					mlog.String("user_id", wc.UserId),
@@ -791,7 +852,7 @@ func (wc *WebConn) ShouldSendEvent(msg *model.WebSocketEvent) bool {
 	// see sensitive data. Prevents admin clients from receiving events with bad data
 	var hasReadPrivateDataPermission *bool
 	if msg.GetBroadcast().ContainsSanitizedData {
-		hasReadPrivateDataPermission = model.NewBool(wc.Suite.RolesGrantPermission(wc.GetSession().GetUserRoles(), model.PermissionManageSystem.Id))
+		hasReadPrivateDataPermission = model.NewPointer(wc.Suite.RolesGrantPermission(wc.GetSession().GetUserRoles(), model.PermissionManageSystem.Id))
 
 		if *hasReadPrivateDataPermission {
 			return false
@@ -801,7 +862,7 @@ func (wc *WebConn) ShouldSendEvent(msg *model.WebSocketEvent) bool {
 	// If the event contains sensitive data, only send to users with permission to see it
 	if msg.GetBroadcast().ContainsSensitiveData {
 		if hasReadPrivateDataPermission == nil {
-			hasReadPrivateDataPermission = model.NewBool(wc.Suite.RolesGrantPermission(wc.GetSession().GetUserRoles(), model.PermissionManageSystem.Id))
+			hasReadPrivateDataPermission = model.NewPointer(wc.Suite.RolesGrantPermission(wc.GetSession().GetUserRoles(), model.PermissionManageSystem.Id))
 		}
 
 		if !*hasReadPrivateDataPermission {
@@ -831,14 +892,30 @@ func (wc *WebConn) ShouldSendEvent(msg *model.WebSocketEvent) bool {
 	}
 
 	// Only report events to users who are in the channel for the event
-	if msg.GetBroadcast().ChannelId != "" {
+	if chID := msg.GetBroadcast().ChannelId; chID != "" {
+		// For typing events, we don't send them to users who don't have
+		// that channel or thread opened.
+		if wc.Platform.Config().FeatureFlags.WebSocketEventScope &&
+			slices.Contains([]model.WebsocketEventType{
+				model.WebsocketEventTyping,
+				model.WebsocketEventReactionAdded,
+				model.WebsocketEventReactionRemoved,
+			}, msg.EventType()) && wc.notInChannel(chID) && wc.notInThread(chID) {
+			return false
+		}
+
 		if model.GetMillis()-wc.lastAllChannelMembersTime > webConnMemberCacheTime {
 			wc.allChannelMembers = nil
 			wc.lastAllChannelMembersTime = 0
 		}
 
 		if wc.allChannelMembers == nil {
-			result, err := wc.Platform.Store.Channel().GetAllChannelMembersForUser(wc.UserId, false, false)
+			result, err := wc.Platform.Store.Channel().GetAllChannelMembersForUser(
+				sqlstore.RequestContextWithMaster(request.EmptyContext(wc.Platform.logger)),
+				wc.UserId,
+				false,
+				false,
+			)
 			if err != nil {
 				mlog.Error("webhub.shouldSendEvent.", mlog.Err(err))
 				return false
@@ -847,7 +924,7 @@ func (wc *WebConn) ShouldSendEvent(msg *model.WebSocketEvent) bool {
 			wc.lastAllChannelMembersTime = model.GetMillis()
 		}
 
-		if _, ok := wc.allChannelMembers[msg.GetBroadcast().ChannelId]; ok {
+		if _, ok := wc.allChannelMembers[chID]; ok {
 			return true
 		}
 		return false
@@ -863,6 +940,15 @@ func (wc *WebConn) ShouldSendEvent(msg *model.WebSocketEvent) bool {
 	}
 
 	return true
+}
+
+func (wc *WebConn) notInChannel(val string) bool {
+	return (wc.isSet(wc.GetActiveChannelID()) && val != wc.GetActiveChannelID())
+}
+
+func (wc *WebConn) notInThread(val string) bool {
+	return (wc.isSet(wc.GetActiveRHSThreadChannelID()) && val != wc.GetActiveRHSThreadChannelID()) &&
+		(wc.isSet(wc.GetActiveThreadViewThreadChannelID()) && val != wc.GetActiveThreadViewThreadChannelID())
 }
 
 // IsMemberOfTeam returns whether the user of the WebConn
@@ -892,11 +978,13 @@ func (wc *WebConn) logSocketErr(source string, err error) {
 	if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseNoStatusReceived) {
 		mlog.Debug(source+": client side closed socket",
 			mlog.String("user_id", wc.UserId),
-			mlog.String("conn_id", wc.GetConnectionID()))
+			mlog.String("conn_id", wc.GetConnectionID()),
+			mlog.String("origin_client", wc.originClient))
 	} else {
 		mlog.Debug(source+": closing websocket",
 			mlog.String("user_id", wc.UserId),
 			mlog.String("conn_id", wc.GetConnectionID()),
+			mlog.String("origin_client", wc.originClient),
 			mlog.Err(err))
 	}
 }

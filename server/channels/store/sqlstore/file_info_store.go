@@ -455,6 +455,13 @@ func (fs SqlFileInfoStore) DeleteForPost(rctx request.CTX, postId string) (strin
 	return postId, nil
 }
 
+func (fs SqlFileInfoStore) PermanentDeleteForPost(rctx request.CTX, postID string) error {
+	if _, err := fs.GetMasterX().Exec(`DELETE FROM FileInfo WHERE PostId = ?`, postID); err != nil {
+		return errors.Wrapf(err, "failed to delete FileInfo with PostId=%s", postID)
+	}
+	return nil
+}
+
 func (fs SqlFileInfoStore) PermanentDelete(rctx request.CTX, fileId string) error {
 	if _, err := fs.GetMasterX().Exec(`DELETE FROM FileInfo WHERE Id = ?`, fileId); err != nil {
 		return errors.Wrapf(err, "failed to delete FileInfo with id=%s", fileId)
@@ -465,12 +472,12 @@ func (fs SqlFileInfoStore) PermanentDelete(rctx request.CTX, fileId string) erro
 func (fs SqlFileInfoStore) PermanentDeleteBatch(rctx request.CTX, endTime int64, limit int64) (int64, error) {
 	var query string
 	if fs.DriverName() == "postgres" {
-		query = "DELETE from FileInfo WHERE Id = any (array (SELECT Id FROM FileInfo WHERE CreateAt < ? LIMIT ?))"
+		query = "DELETE from FileInfo WHERE Id = any (array (SELECT Id FROM FileInfo WHERE CreateAt < ? AND CreatorId != ? LIMIT ?))"
 	} else {
-		query = "DELETE from FileInfo WHERE CreateAt < ? LIMIT ?"
+		query = "DELETE from FileInfo WHERE CreateAt < ? AND CreatorId != ? LIMIT ?"
 	}
 
-	sqlResult, err := fs.GetMasterX().Exec(query, endTime, limit)
+	sqlResult, err := fs.GetMasterX().Exec(query, endTime, model.BookmarkFileOwner, limit)
 	if err != nil {
 		return 0, errors.Wrap(err, "failed to delete FileInfos in batch")
 	}
@@ -514,6 +521,10 @@ func (fs SqlFileInfoStore) Search(rctx request.CTX, paramsList []*model.SearchPa
 		LeftJoin("ChannelMembers as CM ON C.Id=CM.ChannelId").
 		Where(sq.Or{sq.Eq{"C.TeamId": teamId}, sq.Eq{"C.TeamId": ""}}).
 		Where(sq.Eq{"FileInfo.DeleteAt": 0}).
+		Where(sq.Or{
+			sq.Eq{"FileInfo.CreatorId": model.BookmarkFileOwner},
+			sq.NotEq{"FileInfo.PostId": ""},
+		}).
 		OrderBy("FileInfo.CreateAt DESC").
 		Limit(100)
 

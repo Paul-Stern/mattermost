@@ -34,16 +34,16 @@ func testLogJoinEvent(t *testing.T, rctx request.CTX, ss store.Store) {
 		Name:        NewTestId(),
 		Type:        model.ChannelTypeOpen,
 	}
-	channel, err := ss.Channel().Save(&ch, -1)
+	channel, err := ss.Channel().Save(rctx, &ch, -1)
 	require.NoError(t, err)
 
 	// and a test user
 	user := model.User{
 		Email:    MakeEmail(),
 		Nickname: model.NewId(),
-		Username: model.NewId(),
+		Username: model.NewUsername(),
 	}
-	userPtr, err := ss.User().Save(&user)
+	userPtr, err := ss.User().Save(rctx, &user)
 	require.NoError(t, err)
 	user = *userPtr
 
@@ -60,16 +60,16 @@ func testLogLeaveEvent(t *testing.T, rctx request.CTX, ss store.Store) {
 		Name:        NewTestId(),
 		Type:        model.ChannelTypeOpen,
 	}
-	channel, err := ss.Channel().Save(&ch, -1)
+	channel, err := ss.Channel().Save(rctx, &ch, -1)
 	require.NoError(t, err)
 
 	// and a test user
 	user := model.User{
 		Email:    MakeEmail(),
 		Nickname: model.NewId(),
-		Username: model.NewId(),
+		Username: model.NewUsername(),
 	}
-	userPtr, err := ss.User().Save(&user)
+	userPtr, err := ss.User().Save(rctx, &user)
 	require.NoError(t, err)
 	user = *userPtr
 
@@ -89,16 +89,16 @@ func testGetUsersInChannelAtChannelMemberHistory(t *testing.T, rctx request.CTX,
 		Name:        NewTestId(),
 		Type:        model.ChannelTypeOpen,
 	}
-	channel, err := ss.Channel().Save(ch, -1)
+	channel, err := ss.Channel().Save(rctx, ch, -1)
 	require.NoError(t, err)
 
 	// and a test user
 	user := model.User{
 		Email:    MakeEmail(),
 		Nickname: model.NewId(),
-		Username: model.NewId(),
+		Username: model.NewUsername(),
 	}
-	userPtr, err := ss.User().Save(&user)
+	userPtr, err := ss.User().Save(rctx, &user)
 	require.NoError(t, err)
 	user = *userPtr
 
@@ -185,16 +185,16 @@ func testGetUsersInChannelAtChannelMembers(t *testing.T, rctx request.CTX, ss st
 		Name:        NewTestId(),
 		Type:        model.ChannelTypeOpen,
 	}
-	channel, err := ss.Channel().Save(channel, -1)
+	channel, err := ss.Channel().Save(rctx, channel, -1)
 	require.NoError(t, err)
 
 	// and a test user
 	user := model.User{
 		Email:    MakeEmail(),
 		Nickname: model.NewId(),
-		Username: model.NewId(),
+		Username: model.NewUsername(),
 	}
-	userPtr, err := ss.User().Save(&user)
+	userPtr, err := ss.User().Save(rctx, &user)
 	require.NoError(t, err)
 	user = *userPtr
 
@@ -212,7 +212,7 @@ func testGetUsersInChannelAtChannelMembers(t *testing.T, rctx request.CTX, ss st
 	// available in the ChannelMemberHistory table. Instead, we'll fall back to the ChannelMembers table for a rough approximation
 	joinTime := int64(1000)
 	leaveTime := joinTime + 5000
-	_, err = ss.Channel().SaveMember(&model.ChannelMember{
+	_, err = ss.Channel().SaveMember(rctx, &model.ChannelMember{
 		ChannelId:   channel.Id,
 		UserId:      user.Id,
 		NotifyProps: model.GetDefaultChannelNotifyProps(),
@@ -297,25 +297,25 @@ func testPermanentDeleteBatch(t *testing.T, rctx request.CTX, ss store.Store) {
 		Name:        NewTestId(),
 		Type:        model.ChannelTypeOpen,
 	}
-	channel, err := ss.Channel().Save(channel, -1)
+	channel, err := ss.Channel().Save(rctx, channel, -1)
 	require.NoError(t, err)
 
 	// and two test users
 	user := model.User{
 		Email:    MakeEmail(),
 		Nickname: model.NewId(),
-		Username: model.NewId(),
+		Username: model.NewUsername(),
 	}
-	userPtr, err := ss.User().Save(&user)
+	userPtr, err := ss.User().Save(rctx, &user)
 	require.NoError(t, err)
 	user = *userPtr
 
 	user2 := model.User{
 		Email:    MakeEmail(),
 		Nickname: model.NewId(),
-		Username: model.NewId(),
+		Username: model.NewUsername(),
 	}
-	user2Ptr, err := ss.User().Save(&user2)
+	user2Ptr, err := ss.User().Save(rctx, &user2)
 	require.NoError(t, err)
 	user2 = *user2Ptr
 
@@ -358,7 +358,7 @@ func testPermanentDeleteBatchForRetentionPolicies(t *testing.T, rctx request.CTX
 		Type:        model.TeamOpen,
 	})
 	require.NoError(t, err)
-	channel, err := ss.Channel().Save(&model.Channel{
+	channel, err := ss.Channel().Save(rctx, &model.Channel{
 		TeamId:      team.Id,
 		DisplayName: "DisplayName",
 		Name:        "channel" + model.NewId(),
@@ -377,7 +377,7 @@ func testPermanentDeleteBatchForRetentionPolicies(t *testing.T, rctx request.CTX
 	channelPolicy, err := ss.RetentionPolicy().Save(&model.RetentionPolicyWithTeamAndChannelIDs{
 		RetentionPolicy: model.RetentionPolicy{
 			DisplayName:      "DisplayName",
-			PostDurationDays: model.NewInt64(30),
+			PostDurationDays: model.NewPointer(int64(30)),
 		},
 		ChannelIDs: []string{channel.Id},
 	})
@@ -403,7 +403,7 @@ func testGetChannelsLeftSince(t *testing.T, rctx request.CTX, ss store.Store) {
 		Type:        model.TeamOpen,
 	})
 	require.NoError(t, err)
-	channel, err := ss.Channel().Save(&model.Channel{
+	channel, err := ss.Channel().Save(rctx, &model.Channel{
 		TeamId:      team.Id,
 		DisplayName: "DisplayName",
 		Name:        "channel" + model.NewId(),

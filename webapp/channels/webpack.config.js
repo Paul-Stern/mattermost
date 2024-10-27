@@ -23,7 +23,7 @@ const NPM_TARGET = process.env.npm_lifecycle_event;
 const targetIsRun = NPM_TARGET?.startsWith('run');
 const targetIsStats = NPM_TARGET === 'stats';
 const targetIsDevServer = NPM_TARGET?.startsWith('dev-server');
-const targetIsEslint = NPM_TARGET === 'check' || NPM_TARGET === 'fix' || process.env.VSCODE_CWD;
+const targetIsEslint = NPM_TARGET?.startsWith('check') || NPM_TARGET === 'fix' || process.env.VSCODE_CWD;
 
 const DEV = targetIsRun || targetIsStats || targetIsDevServer;
 
@@ -97,7 +97,7 @@ var config = {
                         loader: 'sass-loader',
                         options: {
                             sassOptions: {
-                                includePaths: ['src', 'src/sass'],
+                                includePaths: ['src/sass'],
                             },
                         },
                     },
@@ -133,7 +133,7 @@ var config = {
             'mattermost-redux': 'packages/mattermost-redux/src',
             '@mui/styled-engine': '@mui/styled-engine-sc',
 
-            // This alias restricts single version of styled components acros all packages
+            // This alias restricts single version of styled components across all packages
             'styled-components': path.resolve(__dirname, '..', 'node_modules', 'styled-components'),
         },
         extensions: ['.ts', '.tsx', '.js', '.jsx'],
@@ -159,6 +159,7 @@ var config = {
             filename: 'root.html',
             inject: 'head',
             template: 'src/root.html',
+            scriptLoading: 'blocking',
             meta: {
                 csp: {
                     'http-equiv': 'Content-Security-Policy',
@@ -191,7 +192,10 @@ var config = {
                 {from: 'src/images/cloud-laptop-error.png', to: 'images'},
                 {from: 'src/images/cloud-laptop-warning.png', to: 'images'},
                 {from: 'src/images/cloud-upgrade-person-hand-to-face.png', to: 'images'},
+                {from: 'src/images/payment_processing.png', to: 'images'},
+                {from: 'src/images/purchase_alert.png', to: 'images'},
                 {from: '../node_modules/pdfjs-dist/cmaps', to: 'cmaps'},
+                {from: 'src/components/initial_loading_screen/initial_loading_screen.css', to: 'css'},
             ],
         }),
 

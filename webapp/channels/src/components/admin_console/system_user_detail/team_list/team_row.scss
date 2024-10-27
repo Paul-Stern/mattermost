@@ -1,4 +1,4 @@
-@import 'sass/utils/module';
+@import 'utils/variables';
 
 .TeamRow {
     &:nth-child(odd) {
@@ -56,8 +56,8 @@
         text-decoration: none;
 
         &:hover {
-            background-color: $light-gray;
             border-radius: 3px;
+            background-color: $light-gray;
         }
 
         &.warning {

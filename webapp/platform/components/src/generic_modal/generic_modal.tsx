@@ -1,8 +1,8 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import React from 'react';
 import classNames from 'classnames';
+import React from 'react';
 import {Modal} from 'react-bootstrap';
 import {FormattedMessage} from 'react-intl';
 
@@ -31,7 +31,7 @@ export type Props = {
     ariaLabel?: string;
     errorText?: string | React.ReactNode;
     compassDesign?: boolean;
-    backdrop?: boolean;
+    backdrop?: boolean | 'static';
     backdropClassName?: string;
     tabIndex?: number;
     children: React.ReactNode;
@@ -40,6 +40,7 @@ export type Props = {
     headerInput?: React.ReactNode;
     bodyPadding?: boolean;
     bodyDivider?: boolean;
+    bodyOverflowVisible?: boolean;
     footerContent?: React.ReactNode;
     footerDivider?: boolean;
     appendedContent?: React.ReactNode;
@@ -73,7 +74,7 @@ export class GenericModal extends React.PureComponent<Props, State> {
 
     onHide = () => {
         this.setState({show: false});
-    }
+    };
 
     handleCancel = (event: React.MouseEvent<HTMLButtonElement, MouseEvent>) => {
         event.preventDefault();
@@ -83,7 +84,7 @@ export class GenericModal extends React.PureComponent<Props, State> {
         if (this.props.handleCancel) {
             this.props.handleCancel();
         }
-    }
+    };
 
     handleConfirm = (event: React.MouseEvent<HTMLButtonElement, MouseEvent>) => {
         event.preventDefault();
@@ -93,7 +94,7 @@ export class GenericModal extends React.PureComponent<Props, State> {
         if (this.props.handleConfirm) {
             this.props.handleConfirm();
         }
-    }
+    };
 
     private onEnterKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
         if (event.key === 'Enter') {
@@ -108,7 +109,7 @@ export class GenericModal extends React.PureComponent<Props, State> {
             }
         }
         this.props.handleKeydown?.(event);
-    }
+    };
 
     render() {
         let confirmButton;
@@ -164,7 +165,10 @@ export class GenericModal extends React.PureComponent<Props, State> {
 
         const headerText = this.props.modalHeaderText && (
             <div className='GenericModal__header'>
-                <h1 id='genericModalLabel'>
+                <h1
+                    id='genericModalLabel'
+                    className='modal-title'
+                >
                     {this.props.modalHeaderText}
                 </h1>
                 {this.props.headerButton}
@@ -177,7 +181,14 @@ export class GenericModal extends React.PureComponent<Props, State> {
                 role='dialog'
                 aria-label={this.props.ariaLabel}
                 aria-labelledby={this.props.ariaLabel ? undefined : 'genericModalLabel'}
-                dialogClassName={classNames('a11y__modal GenericModal', {GenericModal__compassDesign: this.props.compassDesign}, this.props.className)}
+                dialogClassName={classNames(
+                    'a11y__modal GenericModal',
+                    {
+                        GenericModal__compassDesign: this.props.compassDesign,
+                        'modal--overflow': this.props.bodyOverflowVisible,
+                    },
+                    this.props.className,
+                )}
                 show={this.state.show}
                 restoreFocus={true}
                 enforceFocus={this.props.enforceFocus}
@@ -201,7 +212,7 @@ export class GenericModal extends React.PureComponent<Props, State> {
                             </>
                         )}
                     </Modal.Header>
-                    <Modal.Body className={classNames({divider: this.props.bodyDivider})}>
+                    <Modal.Body className={classNames({divider: this.props.bodyDivider, 'overflow-visible': this.props.bodyOverflowVisible})}>
                         {this.props.compassDesign ? (
                             this.props.errorText && (
                                 <div className='genericModalError'>

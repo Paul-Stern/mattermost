@@ -1,6 +1,8 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
+import type React from 'react';
+
 export type PluginConfiguration = {
 
     /** Plugin ID  */
@@ -11,7 +13,25 @@ export type PluginConfiguration = {
 
     /** URL to the icon to show in the UI. No icon will show the plug outline icon. */
     icon?: string;
-    sections: PluginConfigurationSection[];
+
+    /** Action that will appear at the beginning of the plugin settings tab */
+    action?: PluginConfigurationAction;
+    sections: Array<PluginConfigurationSection | PluginConfigurationCustomSection>;
+}
+
+export type PluginConfigurationAction = {
+
+    /** Text shown as the title of the action */
+    title: string;
+
+    /** Text shown as the body of the action */
+    text: string;
+
+    /** Text shown at the button */
+    buttonText: string;
+
+    /** This function is called when the button on the action is clicked */
+    onClick: () => void;
 }
 
 export type PluginConfigurationSection = {
@@ -19,6 +39,9 @@ export type PluginConfigurationSection = {
 
     /** The title of the section. All titles must be different. */
     title: string;
+
+    /** Whether the section is disabled. */
+    disabled?: boolean;
 
     /**
      * This function will be called whenever a section is saved.
@@ -28,6 +51,15 @@ export type PluginConfigurationSection = {
      * to the change.
     */
     onSubmit?: (changes: {[name: string]: string}) => void;
+}
+
+export type PluginConfigurationCustomSection = {
+
+    /** The title of the section. All titles must be different. */
+    title: string;
+
+    /** A React component used to render the custom section. */
+    component: React.ComponentType;
 }
 
 export type BasePluginConfigurationSetting = {
@@ -53,6 +85,15 @@ export type PluginConfigurationRadioSetting = BasePluginConfigurationSetting & {
     options: PluginConfigurationRadioSettingOption[];
 }
 
+export type PluginCustomSettingComponent = React.ComponentType<{informChange: (name: string, value: string) => void}>;
+
+export type PluginConfigurationCustomSetting = BasePluginConfigurationSetting & {
+    type: 'custom';
+
+    /** A React component used to render the custom setting. */
+    component: PluginCustomSettingComponent;
+}
+
 export type PluginConfigurationRadioSettingOption = {
 
     /** The value to store in the preferences */
@@ -65,4 +106,4 @@ export type PluginConfigurationRadioSettingOption = {
     helpText?: string;
 }
 
-export type PluginConfigurationSetting = PluginConfigurationRadioSetting
+export type PluginConfigurationSetting = PluginConfigurationRadioSetting | PluginConfigurationCustomSetting

@@ -7,10 +7,7 @@ import styled from 'styled-components';
 
 import type {Channel} from '@mattermost/types/channels';
 
-import OverlayTrigger from 'components/overlay_trigger';
-import Tooltip from 'components/tooltip';
-
-import Constants from 'utils/constants';
+import WithTooltip from 'components/with_tooltip';
 
 interface Props {
     channel: Channel;
@@ -23,42 +20,27 @@ const Icon = styled.i`
     font-size:12px;
 `;
 
-const BackButton = styled.button`
-    border: 0px;
-    background: transparent;
-`;
-
 const HeaderTitle = styled.span`
     line-height: 2.4rem;
 `;
 
 const Header = ({channel, isArchived, isMobile, onClose}: Props) => {
     const {formatMessage} = useIntl();
-    const closeSidebarTooltip = (
-        <Tooltip id='closeSidebarTooltip'>
-            <FormattedMessage
-                id='rhs_header.closeSidebarTooltip'
-                defaultMessage='Close'
-            />
-        </Tooltip>
-    );
 
     return (
         <div className='sidebar--right__header'>
             <span className='sidebar--right__title'>
-
                 {isMobile && (
-                    <BackButton
-                        className='sidebar--right__back'
+                    <button
+                        className='sidebar--right__back btn btn-icon btn-sm'
                         onClick={onClose}
+                        aria-label={formatMessage({id: 'rhs_header.back.icon', defaultMessage: 'Back Icon'})}
                     >
                         <i
                             className='icon icon-arrow-back-ios'
-                            aria-label='Back Icon'
                         />
-                    </BackButton>
+                    </button>
                 )}
-
                 <HeaderTitle>
                     <FormattedMessage
                         id='channel_info_rhs.header.title'
@@ -76,10 +58,15 @@ const Header = ({channel, isArchived, isMobile, onClose}: Props) => {
                 }
             </span>
 
-            <OverlayTrigger
-                delayShow={Constants.OVERLAY_TIME_DELAY}
+            <WithTooltip
+                id='closeSidebarTooltip'
                 placement='top'
-                overlay={closeSidebarTooltip}
+                title={
+                    <FormattedMessage
+                        id='rhs_header.closeSidebarTooltip'
+                        defaultMessage='Close'
+                    />
+                }
             >
                 <button
                     id='rhsCloseButton'
@@ -92,7 +79,7 @@ const Header = ({channel, isArchived, isMobile, onClose}: Props) => {
                         className='icon icon-close'
                     />
                 </button>
-            </OverlayTrigger>
+            </WithTooltip>
         </div>
     );
 };

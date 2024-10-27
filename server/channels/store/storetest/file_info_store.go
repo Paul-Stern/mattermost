@@ -37,6 +37,7 @@ func TestFileInfoStore(t *testing.T, rctx request.CTX, ss store.Store, s SqlStor
 	t.Run("CountAll", func(t *testing.T) { testFileInfoStoreCountAll(t, rctx, ss) })
 	t.Run("GetStorageUsage", func(t *testing.T) { testFileInfoGetStorageUsage(t, rctx, ss) })
 	t.Run("GetUptoNSizeFileTime", func(t *testing.T) { testGetUptoNSizeFileTime(t, rctx, ss, s) })
+	t.Run("FileInfoPermanentDeleteForPost", func(t *testing.T) { testPermanentDeleteForPost(t, rctx, ss) })
 }
 
 func testFileInfoSaveGet(t *testing.T, rctx request.CTX, ss store.Store) {
@@ -282,7 +283,7 @@ func testFileInfoGetWithOptions(t *testing.T, rctx request.CTX, ss store.Store) 
 		post := model.Post{}
 		post.ChannelId = chId
 		post.UserId = user
-		_, err := ss.Post().Save(&post)
+		_, err := ss.Post().Save(rctx, &post)
 		require.NoError(t, err)
 		return &post
 	}
@@ -615,16 +616,26 @@ func testFileInfoPermanentDeleteBatch(t *testing.T, rctx request.CTX, ss store.S
 	})
 	require.NoError(t, err)
 
+	bookmarkFile, err := ss.FileInfo().Save(rctx, &model.FileInfo{ // should not be deleted
+		PostId:    postId,
+		ChannelId: channelId,
+		CreatorId: model.BookmarkFileOwner,
+		Path:      "file.txt",
+		CreateAt:  1000,
+	})
+	defer ss.FileInfo().PermanentDelete(rctx, bookmarkFile.Id)
+	require.NoError(t, err)
+
 	postFiles, err := ss.FileInfo().GetForPost(postId, true, false, false)
 	require.NoError(t, err)
-	assert.Len(t, postFiles, 3)
+	assert.Len(t, postFiles, 4)
 
 	_, err = ss.FileInfo().PermanentDeleteBatch(rctx, 1500, 1000)
 	require.NoError(t, err)
 
 	postFiles, err = ss.FileInfo().GetForPost(postId, true, false, false)
 	require.NoError(t, err)
-	assert.Len(t, postFiles, 1)
+	assert.Len(t, postFiles, 2)
 }
 
 func testFileInfoPermanentDeleteByUser(t *testing.T, rctx request.CTX, ss store.Store) {
@@ -683,20 +694,20 @@ func testFileInfoStoreGetFilesBatchForIndexing(t *testing.T, rctx request.CTX, s
 	c1.DisplayName = "Channel1"
 	c1.Name = "zz" + model.NewId() + "b"
 	c1.Type = model.ChannelTypeOpen
-	c1, _ = ss.Channel().Save(c1, -1)
+	c1, _ = ss.Channel().Save(rctx, c1, -1)
 
 	c2 := &model.Channel{}
 	c2.TeamId = model.NewId()
 	c2.DisplayName = "Channel2"
 	c2.Name = "zz" + model.NewId() + "b"
 	c2.Type = model.ChannelTypeOpen
-	c2, _ = ss.Channel().Save(c2, -1)
+	c2, _ = ss.Channel().Save(rctx, c2, -1)
 
 	o1 := &model.Post{}
 	o1.ChannelId = c1.Id
 	o1.UserId = model.NewId()
 	o1.Message = "zz" + model.NewId() + "AAAAAAAAAAA"
-	o1, err := ss.Post().Save(o1)
+	o1, err := ss.Post().Save(rctx, o1)
 	require.NoError(t, err)
 	f1, err := ss.FileInfo().Save(rctx, &model.FileInfo{
 		PostId:    o1.Id,
@@ -714,7 +725,7 @@ func testFileInfoStoreGetFilesBatchForIndexing(t *testing.T, rctx request.CTX, s
 	o2.ChannelId = c2.Id
 	o2.UserId = model.NewId()
 	o2.Message = "zz" + model.NewId() + "CCCCCCCCC"
-	o2, err = ss.Post().Save(o2)
+	o2, err = ss.Post().Save(rctx, o2)
 	require.NoError(t, err)
 
 	f2, err := ss.FileInfo().Save(rctx, &model.FileInfo{
@@ -734,7 +745,7 @@ func testFileInfoStoreGetFilesBatchForIndexing(t *testing.T, rctx request.CTX, s
 	o3.UserId = model.NewId()
 	o3.RootId = o1.Id
 	o3.Message = "zz" + model.NewId() + "QQQQQQQQQQ"
-	o3, err = ss.Post().Save(o3)
+	o3, err = ss.Post().Save(rctx, o3)
 	require.NoError(t, err)
 
 	f3, err := ss.FileInfo().Save(rctx, &model.FileInfo{
@@ -930,4 +941,29 @@ func testGetUptoNSizeFileTime(t *testing.T, rctx request.CTX, ss store.Store, s 
 	createAt, err = ss.FileInfo().GetUptoNSizeFileTime(20)
 	require.NoError(t, err)
 	assert.Equal(t, f2.CreateAt, createAt)
+}
+
+func testPermanentDeleteForPost(t *testing.T, rctx request.CTX, ss store.Store) {
+	postId := model.NewId()
+
+	_, err := ss.FileInfo().Save(rctx, &model.FileInfo{
+		PostId:    postId,
+		CreatorId: model.NewId(),
+		Size:      10,
+		Path:      "file1.txt",
+		CreateAt:  utils.MillisFromTime(time.Now()),
+	})
+	require.NoError(t, err)
+
+	err = ss.FileInfo().PermanentDeleteForPost(rctx, postId)
+	require.NoError(t, err)
+
+	postInfos, err := ss.FileInfo().GetForPost(
+		postId,
+		true,
+		true,
+		false,
+	)
+	require.NoError(t, err)
+	assert.Len(t, postInfos, 0)
 }

@@ -55,7 +55,7 @@ func SetupWithStoreMock(tb testing.TB) *TestHelper {
 		tb.SkipNow()
 	}
 
-	th := setupTestHelper(tb, false, []app.Option{app.SkipProductsInitialization()})
+	th := setupTestHelper(tb, false, nil)
 	emptyMockStore := mocks.Store{}
 	emptyMockStore.On("Close").Return(nil)
 	th.App.Srv().SetStore(&emptyMockStore)
@@ -101,7 +101,7 @@ func setupTestHelper(tb testing.TB, includeCacheLayer bool, options []app.Option
 	if includeCacheLayer {
 		// Adds the cache layer to the test store
 		var st localcachelayer.LocalCacheStore
-		st, err = localcachelayer.NewLocalCacheLayer(s.Store(), s.GetMetrics(), s.Platform().Cluster(), s.Platform().CacheProvider())
+		st, err = localcachelayer.NewLocalCacheLayer(s.Store(), s.GetMetrics(), s.Platform().Cluster(), s.Platform().CacheProvider(), testLogger)
 		if err != nil {
 			panic(err)
 		}
